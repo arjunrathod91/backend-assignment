@@ -1,6 +1,16 @@
 const express = require('express');
 const app = express();
+const bodyParser = require('body-parser');
+const jwt = require('jsonwebtoken');
 app.use(express.json());
+app.use(bodyParser.json());
+
+const jwtSecret = 'arjun_26#45rathod';
+const users = [
+    { id: 1, username: 'admin', password: 'admin', role: 'admin' },
+    { id: 2, username: 'user', password: 'user', role: 'user' }
+];
+
 
 let tasks = [
     { id: 1, title: 'Task 1', desc: 'Description 1' },
@@ -11,10 +21,69 @@ let tasks = [
     { id: 6, title: 'Task 6', desc: 'Description 6' },
 ];
 
+
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (token == null) return res.sendStatus(401); // Unauthorized
+
+    jwt.verify(token, jwtSecret, (err, user) => {
+        if (err) return res.sendStatus(403); // Forbidden
+        req.user = user;
+        next();
+    });
+}
+
+
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    const user = users.find(u => u.username === username && u.password === password);
+
+    if (user) {
+        const token = jwt.sign({ username: user.username, role: user.role }, jwtSecret, { expiresIn: '1h' });
+        res.json({ token });
+    } else {
+        res.status(401).json({ error: 'Invalid credentials' });
+    }
+});
+
 //get all tasks
 
-app.get('/tasks',(req,res)=>{
-    res.status(200).json(tasks);
+app.get('/tasks',authenticateToken,(req,res)=>{
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 2;
+    const sortBy = req.query.sortBy || 'id';
+    const order = req.query.order === 'desc' ? -1 : 1;
+    const filterBy = req.query.filterBy || null;
+    const filterValue = req.query.filterValue || null;
+
+    // Filter tasks
+    let filteredTasks = tasks;
+    if (filterBy && filterValue) {
+        filteredTasks = tasks.filter(task => task[filterBy] == filterValue);
+    }
+
+    // Sort tasks
+    filteredTasks.sort((a, b) => {
+        if (a[sortBy] < b[sortBy]) return -1 * order;
+        if (a[sortBy] > b[sortBy]) return 1 * order;
+        return 0;
+    });
+
+
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    const paginatedTasks = tasks.slice(startIndex, endIndex);
+
+    const response = {
+        page,
+        limit,
+        totalTasks: tasks.length,
+        totalPages: Math.ceil(tasks.length / limit),
+        tasks: paginatedTasks
+    };
+
+    res.status(200).json(response);
 })
 
 //get request by id
@@ -31,7 +100,7 @@ app.get('/tasks/:id',(req,res)=>{
 
 // post request
 
-app.post('/tasks', (req, res) => {
+app.post('/tasks',authenticateToken,(req, res) => {
     const { title, desc } = req.body;
     const newTask = {
         id: tasks.length + 1,
@@ -44,7 +113,7 @@ app.post('/tasks', (req, res) => {
 
 //put request
 
-app.put('/tasks/:id', (req, res) => {
+app.put('/tasks/:id',authenticateToken,(req, res) => {
     const taskId = parseInt(req.params.id);
     const { title, desc } = req.body;
     const taskToUpdate = tasks.find(t => t.id === taskId);
@@ -59,7 +128,7 @@ app.put('/tasks/:id', (req, res) => {
 
 //delete delete
 
-app.delete('/tasks/:id', (req, res) => {
+app.delete('/tasks/:id',authenticateToken,(req, res) => {
     const taskId = parseInt(req.params.id);
     const taskIndex = tasks.findIndex(t => t.id === taskId);
     if (taskIndex !== -1) {
@@ -69,7 +138,6 @@ app.delete('/tasks/:id', (req, res) => {
         res.status(404).send({ error: 'Task not found' });
     }
 });
-
 
 
 app.listen(8000,()=>{
